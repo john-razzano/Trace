@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Trace",
+    "slug": "trace",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F5F2EB"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.trace.app",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location"
+        ],
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Trace needs location access to record your path, even when the app is in the background.",
+        "NSLocationWhenInUseUsageDescription": "Trace needs location access to record your path.",
+        "UIViewControllerBasedStatusBarAppearance": false,
+        "UIStatusBarHidden": true
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F5F2EB"
+      },
+      "package": "com.trace.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ],
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Trace needs location access to record your path, even when the app is in the background.",
+          "locationWhenInUsePermission": "Trace needs location access to record your path."
+        }
+      ],
+      "expo-router",
+      "expo-sqlite"
+    ],
+    "scheme": "trace"
+  }
+}
