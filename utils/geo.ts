@@ -1,14 +1,16 @@
 import { LocationPoint } from './database';
 
-/**
- * Calculate bounding box for a set of points
- */
-export function getBoundingBox(points: LocationPoint[]): {
+export type LatLonBounds = {
   minLat: number;
   maxLat: number;
   minLon: number;
   maxLon: number;
-} | null {
+};
+
+/**
+ * Calculate bounding box for a set of points
+ */
+export function getBoundingBox(points: LocationPoint[]): LatLonBounds | null {
   if (points.length === 0) return null;
 
   let minLat = points[0].latitude;
@@ -27,34 +29,127 @@ export function getBoundingBox(points: LocationPoint[]): {
 }
 
 /**
- * Convert lat/lon to SVG coordinate system
+ * Calculate display bounds with padding and a minimum span.
+ */
+export function getDisplayBounds(
+  points: LocationPoint[],
+  paddingRatio: number = 0.2,
+  minDelta: number = 0.01
+): LatLonBounds | null {
+  const bounds = getBoundingBox(points);
+  if (!bounds) return null;
+
+  const centerLat = (bounds.minLat + bounds.maxLat) / 2;
+  const centerLon = (bounds.minLon + bounds.maxLon) / 2;
+  const latDelta = Math.max((bounds.maxLat - bounds.minLat) * (1 + paddingRatio), minDelta);
+  const lonDelta = Math.max((bounds.maxLon - bounds.minLon) * (1 + paddingRatio), minDelta);
+
+  return {
+    minLat: centerLat - latDelta / 2,
+    maxLat: centerLat + latDelta / 2,
+    minLon: centerLon - lonDelta / 2,
+    maxLon: centerLon + lonDelta / 2,
+  };
+}
+
+export function getRegionFromBounds(bounds: LatLonBounds): {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+} {
+  return {
+    latitude: (bounds.minLat + bounds.maxLat) / 2,
+    longitude: (bounds.minLon + bounds.maxLon) / 2,
+    latitudeDelta: bounds.maxLat - bounds.minLat,
+    longitudeDelta: bounds.maxLon - bounds.minLon,
+  };
+}
+
+/**
+ * Calculate the actual bounds that the map will display given the screen dimensions.
+ * MapView adjusts the region to fit the screen aspect ratio, expanding whichever
+ * dimension is smaller to maintain the center point.
+ *
+ * react-native-maps uses lat/lon deltas directly (not Mercator) for determining
+ * what region to show, but renders using Mercator projection.
+ */
+export function getActualMapBounds(
+  bounds: LatLonBounds,
+  screenWidth: number,
+  screenHeight: number
+): LatLonBounds {
+  const centerLat = (bounds.minLat + bounds.maxLat) / 2;
+  const centerLon = (bounds.minLon + bounds.maxLon) / 2;
+
+  const latDelta = bounds.maxLat - bounds.minLat;
+  const lonDelta = bounds.maxLon - bounds.minLon;
+
+  // At the center latitude, calculate how many degrees of longitude equal one degree of latitude
+  // This accounts for longitude compression at higher latitudes
+  const latRadians = (centerLat * Math.PI) / 180;
+  const lonDegreesPerLatDegree = Math.cos(latRadians);
+
+  // Convert lon delta to "equivalent lat units" for aspect ratio comparison
+  const lonDeltaInLatUnits = lonDelta * lonDegreesPerLatDegree;
+
+  // Calculate aspect ratios
+  const screenAspect = screenWidth / screenHeight;
+  const boundsAspect = lonDeltaInLatUnits / latDelta;
+
+  let adjustedLatDelta = latDelta;
+  let adjustedLonDelta = lonDelta;
+
+  if (boundsAspect < screenAspect) {
+    // Screen is wider than bounds - expand longitude
+    adjustedLonDelta = (latDelta * screenAspect) / lonDegreesPerLatDegree;
+  } else {
+    // Screen is taller than bounds - expand latitude
+    adjustedLatDelta = lonDeltaInLatUnits / screenAspect;
+  }
+
+  return {
+    minLat: centerLat - adjustedLatDelta / 2,
+    maxLat: centerLat + adjustedLatDelta / 2,
+    minLon: centerLon - adjustedLonDelta / 2,
+    maxLon: centerLon + adjustedLonDelta / 2,
+  };
+}
+
+/**
+ * Convert lat/lon to screen coordinate system.
+ * When bounds already include padding (from getDisplayBounds), use padding=0.
+ * Only use padding > 0 for export functions where bounds are raw bounding boxes.
  */
 export function latLonToSVG(
   lat: number,
   lon: number,
-  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number },
+  bounds: LatLonBounds,
   width: number,
   height: number,
-  padding: number = 40
+  padding: number = 0
 ): { x: number; y: number } {
   const latRange = bounds.maxLat - bounds.minLat || 0.001;
   const lonRange = bounds.maxLon - bounds.minLon || 0.001;
 
   const x = padding + ((lon - bounds.minLon) / lonRange) * (width - 2 * padding);
+  // Y is inverted: higher latitude = lower Y (top of screen)
   const y = padding + ((bounds.maxLat - lat) / latRange) * (height - 2 * padding);
 
   return { x, y };
 }
 
 /**
- * Generate SVG path data from location points
+ * Generate SVG path data from location points.
+ * Pass padding=0 when bounds already include padding (display use).
+ * Pass padding > 0 for export when bounds are raw bounding boxes.
  */
 export function generatePathData(
   points: LocationPoint[],
-  bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number },
+  bounds: LatLonBounds,
   width: number,
   height: number,
-  padding?: number
+  padding: number = 0
 ): string {
   if (points.length === 0) return '';
 

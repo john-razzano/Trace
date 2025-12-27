@@ -1,12 +1,25 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, Animated, Easing } from 'react-native';
+import type { LocationObject } from 'expo-location';
+import { LatLonBounds, latLonToSVG, getActualMapBounds } from '../utils/geo';
 
 interface CurrentLocationIndicatorProps {
   color: string;
   isTracking: boolean;
+  currentLocation: LocationObject | null;
+  bounds: LatLonBounds | null;
+  width: number;
+  height: number;
 }
 
-export function CurrentLocationIndicator({ color, isTracking }: CurrentLocationIndicatorProps) {
+export function CurrentLocationIndicator({
+  color,
+  isTracking,
+  currentLocation,
+  bounds,
+  width,
+  height,
+}: CurrentLocationIndicatorProps) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0.8)).current;
 
@@ -56,10 +69,23 @@ export function CurrentLocationIndicator({ color, isTracking }: CurrentLocationI
     };
   }, [isTracking, scale, opacity]);
 
-  if (!isTracking) return null;
+  const position = useMemo(() => {
+    if (!currentLocation || !bounds) return null;
+    // Calculate the actual bounds the map displays (accounting for screen aspect ratio)
+    const actualBounds = getActualMapBounds(bounds, width, height);
+    return latLonToSVG(
+      currentLocation.coords.latitude,
+      currentLocation.coords.longitude,
+      actualBounds,
+      width,
+      height
+    );
+  }, [currentLocation, bounds, width, height]);
+
+  if (!isTracking || !position) return null;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { left: position.x, top: position.y }]}>
       <Animated.View
         style={[
           styles.pulse,
@@ -78,8 +104,6 @@ export function CurrentLocationIndicator({ color, isTracking }: CurrentLocationI
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
     width: 40,
     height: 40,
     marginLeft: -20,
