@@ -1,7 +1,8 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
-import { initDatabase } from '../utils/database';
 import { View, StyleSheet } from 'react-native';
+import { initDatabase } from '../utils/database';
+import '../utils/locationTask';
 
 export default function RootLayout() {
   useEffect(() => {

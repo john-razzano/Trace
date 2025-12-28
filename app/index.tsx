@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { View, StyleSheet, TouchableWithoutFeedback, StatusBar, Alert, useWindowDimensions, Animated } from 'react-native';
+import { View, StyleSheet, TouchableWithoutFeedback, StatusBar, Alert, useWindowDimensions, Animated, AppState } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../utils/theme';
-import { useSettings } from '../hooks/useSettings';
+import { useSettings, TimeRange } from '../hooks/useSettings';
 import { useLocation } from '../hooks/useLocation';
 import { useDatabase } from '../hooks/useDatabase';
+import { getDisplayBounds } from '../utils/geo';
 import { LineRenderer } from '../components/LineRenderer';
 import { MapLayer } from '../components/MapLayer';
-import { TimeSlider, TimeRange } from '../components/TimeSlider';
+import { TimeSlider } from '../components/TimeSlider';
 import { OpacitySlider } from '../components/OpacitySlider';
 import { TrackingIndicator } from '../components/TrackingIndicator';
 import { SettingsDrawer } from '../components/SettingsDrawer';
 import { CurrentLocationIndicator } from '../components/CurrentLocationIndicator';
-import { exportGPX, exportJSON, exportSVG } from '../utils/export';
+import { exportGPX, exportGeoJSON, exportSVG } from '../utils/export';
 import { clearAllLocations, getLocationCount } from '../utils/database';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -27,36 +28,34 @@ const TIME_RANGE_MS: Record<TimeRange, number | null> = {
 
 export default function MainScreen() {
   const router = useRouter();
-  const { settings, updateThemeMode, updateTrackingInterval } = useSettings();
+  const { settings, updateThemeMode, updateTrackingInterval, updateTimeRange, updateMapOpacity } = useSettings();
   const theme = useTheme(settings.themeMode);
   const { width, height } = useWindowDimensions();
 
   const [controlsVisible, setControlsVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
-  const [mapOpacity, setMapOpacity] = useState(0.3);
+  const [isInteracting, setIsInteracting] = useState(false);
   const settingsFadeAnim = useRef(new Animated.Value(0)).current;
   const [totalPointCount, setTotalPointCount] = useState<number | null>(null);
-
-  const {
-    hasPermission,
-    isTracking,
-    toggleTracking,
-    requestPermissions,
-  } = useLocation(settings.trackingInterval);
+  const autoStartAttemptedRef = useRef(false);
+  const appState = useRef(AppState.currentState);
 
   // Calculate time window for data query
   const timeWindow = useMemo(() => {
-    const rangeMs = TIME_RANGE_MS[timeRange];
+    const rangeMs = TIME_RANGE_MS[settings.timeRange];
     if (rangeMs === null) {
       return { startTime: undefined, endTime: undefined };
     }
     const endTime = Date.now();
     const startTime = endTime - rangeMs;
     return { startTime, endTime };
-  }, [timeRange]);
+  }, [settings.timeRange]);
 
   const { sessions, refresh } = useDatabase(timeWindow.startTime, timeWindow.endTime);
+  const displayBounds = useMemo(() => {
+    const allPoints = sessions.flatMap(session => session.points);
+    return getDisplayBounds(allPoints);
+  }, [sessions]);
 
   const loadTotalPointCount = useCallback(async () => {
     try {
@@ -67,6 +66,20 @@ export default function MainScreen() {
     }
   }, []);
 
+  const handleLocationRecorded = useCallback(() => {
+    refresh();
+    loadTotalPointCount();
+  }, [refresh, loadTotalPointCount]);
+
+  const {
+    hasPermission,
+    isTracking,
+    currentLocation,
+    startTracking,
+    toggleTracking,
+    requestPermissions,
+  } = useLocation(settings.trackingInterval, handleLocationRecorded);
+
   // Redirect to onboarding if no permission
   useEffect(() => {
     if (hasPermission === false) {
@@ -74,15 +87,23 @@ export default function MainScreen() {
     }
   }, [hasPermission]);
 
-  // Auto-hide controls after 3 seconds
   useEffect(() => {
-    if (controlsVisible) {
+    if (hasPermission !== true || isTracking || autoStartAttemptedRef.current) {
+      return;
+    }
+    autoStartAttemptedRef.current = true;
+    startTracking();
+  }, [hasPermission, isTracking, startTracking]);
+
+  // Auto-hide controls after 3 seconds (only when not interacting)
+  useEffect(() => {
+    if (controlsVisible && !isInteracting) {
       const timer = setTimeout(() => {
         setControlsVisible(false);
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, [controlsVisible]);
+  }, [controlsVisible, isInteracting]);
 
   useEffect(() => {
     Animated.timing(settingsFadeAnim, {
@@ -98,6 +119,20 @@ export default function MainScreen() {
     }
   }, [settingsVisible, loadTotalPointCount]);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (appState.current.match(/inactive|background/) && nextState === 'active') {
+        refresh();
+        loadTotalPointCount();
+      }
+      appState.current = nextState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [refresh, loadTotalPointCount]);
+
   const handleScreenTap = () => {
     setControlsVisible(prev => !prev);
   };
@@ -106,15 +141,19 @@ export default function MainScreen() {
     try {
       await exportGPX(sessions);
     } catch (error) {
-      Alert.alert('Export Failed', 'Failed to export GPX data');
+      console.error('Export GPX failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to export GPX data';
+      Alert.alert('Export Failed', message);
     }
   };
 
-  const handleExportJSON = async () => {
+  const handleExportGeoJSON = async () => {
     try {
-      await exportJSON(sessions);
+      await exportGeoJSON(sessions);
     } catch (error) {
-      Alert.alert('Export Failed', 'Failed to export JSON data');
+      console.error('Export GeoJSON failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to export GeoJSON data';
+      Alert.alert('Export Failed', message);
     }
   };
 
@@ -122,7 +161,9 @@ export default function MainScreen() {
     try {
       await exportSVG(sessions, width, height);
     } catch (error) {
-      Alert.alert('Export Failed', 'Failed to export SVG data');
+      console.error('Export SVG failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to export SVG data';
+      Alert.alert('Export Failed', message);
     }
   };
 
@@ -146,14 +187,16 @@ export default function MainScreen() {
 
       <TouchableWithoutFeedback onPress={handleScreenTap}>
         <View style={styles.content}>
-          {mapOpacity > 0 && (
-            <MapLayer sessions={sessions} opacity={mapOpacity} />
+          {settings.mapOpacity > 0 && (
+            <MapLayer bounds={displayBounds} opacity={settings.mapOpacity} />
           )}
           <LineRenderer
             sessions={sessions}
             color={theme.line}
             accentColor={theme.accent}
             isTracking={isTracking}
+            bounds={displayBounds}
+            gapThresholdMs={settings.trackingInterval * 60 * 1000 * 2}
           />
         </View>
       </TouchableWithoutFeedback>
@@ -161,6 +204,10 @@ export default function MainScreen() {
       <CurrentLocationIndicator
         color={theme.accent}
         isTracking={isTracking}
+        currentLocation={currentLocation}
+        bounds={displayBounds}
+        width={width}
+        height={height}
       />
 
       <TrackingIndicator
@@ -171,17 +218,21 @@ export default function MainScreen() {
       />
 
       <TimeSlider
-        value={timeRange}
-        onChange={setTimeRange}
+        value={settings.timeRange}
+        onChange={updateTimeRange}
         color={theme.controls}
         visible={controlsVisible}
+        onInteractionStart={() => setIsInteracting(true)}
+        onInteractionEnd={() => setIsInteracting(false)}
       />
 
       <OpacitySlider
-        value={mapOpacity}
-        onChange={setMapOpacity}
+        value={settings.mapOpacity}
+        onChange={updateMapOpacity}
         color={theme.controls}
         visible={controlsVisible}
+        onInteractionStart={() => setIsInteracting(true)}
+        onInteractionEnd={() => setIsInteracting(false)}
       />
 
       {controlsVisible && (
@@ -202,7 +253,7 @@ export default function MainScreen() {
         onThemeModeChange={updateThemeMode}
         onTrackingIntervalChange={updateTrackingInterval}
         onExportGPX={handleExportGPX}
-        onExportJSON={handleExportJSON}
+        onExportGeoJSON={handleExportGeoJSON}
         onExportSVG={handleExportSVG}
         onClearData={handleClearData}
         totalPointCount={totalPointCount}

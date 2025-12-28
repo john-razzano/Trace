@@ -7,9 +7,11 @@ interface OpacitySliderProps {
   onChange: (value: number) => void;
   color: string;
   visible: boolean;
+  onInteractionStart?: () => void;
+  onInteractionEnd?: () => void;
 }
 
-export function OpacitySlider({ value, onChange, color, visible }: OpacitySliderProps) {
+export function OpacitySlider({ value, onChange, color, visible, onInteractionStart, onInteractionEnd }: OpacitySliderProps) {
   const fadeAnim = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const [localValue, setLocalValue] = useState(value);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -65,6 +67,8 @@ export function OpacitySlider({ value, onChange, color, visible }: OpacitySlider
         maximumValue={0.99}
         value={Math.min(localValue, 0.99)}
         onValueChange={handleValueChange}
+        onSlidingStart={onInteractionStart}
+        onSlidingComplete={onInteractionEnd}
         minimumTrackTintColor="rgba(154, 149, 144, 0.3)"
         maximumTrackTintColor="rgba(154, 149, 144, 0.1)"
         thumbTintColor={color}

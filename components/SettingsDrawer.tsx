@@ -20,7 +20,7 @@ interface SettingsDrawerProps {
   onThemeModeChange: (mode: ThemeMode) => void;
   onTrackingIntervalChange: (interval: TrackingInterval) => void;
   onExportGPX: () => void;
-  onExportJSON: () => void;
+  onExportGeoJSON: () => void;
   onExportSVG: () => void;
   onClearData: () => void;
   totalPointCount: number | null;
@@ -29,12 +29,12 @@ interface SettingsDrawerProps {
   controlsColor: string;
 }
 
-const TRACKING_INTERVALS: { value: TrackingInterval; label: string }[] = [
-  { value: 1, label: '1 min' },
-  { value: 5, label: '5 min' },
-  { value: 15, label: '15 min' },
-  { value: 30, label: '30 min' },
-  { value: 60, label: '1 hour' },
+const TRACKING_INTERVALS: { value: TrackingInterval; label: string; unit: string }[] = [
+  { value: 1, label: '1', unit: 'min' },
+  { value: 5, label: '5', unit: 'min' },
+  { value: 15, label: '15', unit: 'min' },
+  { value: 30, label: '30', unit: 'min' },
+  { value: 60, label: '1', unit: 'hour' },
 ];
 
 const THEME_MODES: { value: ThemeMode; label: string }[] = [
@@ -51,7 +51,7 @@ export function SettingsDrawer({
   onThemeModeChange,
   onTrackingIntervalChange,
   onExportGPX,
-  onExportJSON,
+  onExportGeoJSON,
   onExportSVG,
   onClearData,
   totalPointCount,
@@ -97,7 +97,7 @@ export function SettingsDrawer({
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
               <Section title="Tracking Interval" titleColor={textColor}>
-                <SegmentedControl
+                <TrackingIntervalControl
                   options={TRACKING_INTERVALS}
                   value={trackingInterval}
                   onChange={onTrackingIntervalChange}
@@ -123,8 +123,8 @@ export function SettingsDrawer({
                   color={textColor}
                 />
                 <Button
-                  label="Export as JSON"
-                  onPress={onExportJSON}
+                  label="Export as GeoJSON"
+                  onPress={onExportGeoJSON}
                   color={textColor}
                 />
                 <Button
@@ -168,6 +168,57 @@ function Section({ title, titleColor, children }: { title: string; titleColor: s
     <View style={styles.section}>
       <Text style={[styles.sectionTitle, { color: titleColor }]}>{title}</Text>
       {children}
+    </View>
+  );
+}
+
+function TrackingIntervalControl({
+  options,
+  value,
+  onChange,
+  activeColor,
+  inactiveColor,
+}: {
+  options: { value: TrackingInterval; label: string; unit: string }[];
+  value: TrackingInterval;
+  onChange: (value: TrackingInterval) => void;
+  activeColor: string;
+  inactiveColor: string;
+}) {
+  return (
+    <View style={styles.segmentedControl}>
+      {options.map(option => (
+        <TouchableOpacity
+          key={option.value}
+          style={[
+            styles.segment,
+            value === option.value && styles.segmentActive,
+            { borderColor: inactiveColor + '40' },
+          ]}
+          onPress={() => onChange(option.value)}
+        >
+          <Text
+            style={[
+              styles.intervalNumber,
+              {
+                color: value === option.value ? activeColor : inactiveColor,
+              },
+            ]}
+          >
+            {option.label}
+          </Text>
+          <Text
+            style={[
+              styles.intervalUnit,
+              {
+                color: value === option.value ? activeColor : inactiveColor,
+              },
+            ]}
+          >
+            {option.unit}
+          </Text>
+        </TouchableOpacity>
+      ))}
     </View>
   );
 }
@@ -273,6 +324,16 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 13,
     fontWeight: '500',
+  },
+  intervalNumber: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  intervalUnit: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 2,
+    textTransform: 'lowercase',
   },
   button: {
     paddingVertical: 14,

@@ -1,12 +1,34 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Session } from './database';
 import { getBoundingBox, generatePathData } from './geo';
+
+async function shareFile(filePath: string): Promise<void> {
+  if (!FileSystem.documentDirectory) {
+    throw new Error('File system is not available on this device.');
+  }
+  const available = await Sharing.isAvailableAsync();
+  if (!available) {
+    throw new Error('Sharing is not available on this device.');
+  }
+  const info = await FileSystem.getInfoAsync(filePath);
+  if (!info.exists) {
+    throw new Error('Export failed to create the file.');
+  }
+  await Sharing.shareAsync(filePath);
+}
+
+function getTotalPoints(sessions: Session[]): number {
+  return sessions.reduce((count, session) => count + session.points.length, 0);
+}
 
 /**
  * Export sessions as GPX format
  */
 export async function exportGPX(sessions: Session[]): Promise<void> {
+  if (getTotalPoints(sessions) === 0) {
+    throw new Error('No data to export');
+  }
   const timestamp = new Date().toISOString();
 
   let gpx = `<?xml version="1.0" encoding="UTF-8"?>
@@ -36,42 +58,65 @@ export async function exportGPX(sessions: Session[]): Promise<void> {
   const filePath = `${FileSystem.documentDirectory}${fileName}`;
 
   await FileSystem.writeAsStringAsync(filePath, gpx);
-  await Sharing.shareAsync(filePath);
+  await shareFile(filePath);
 }
 
 /**
- * Export sessions as JSON format
+ * Export sessions as GeoJSON format
  */
-export async function exportJSON(sessions: Session[]): Promise<void> {
+export async function exportGeoJSON(sessions: Session[]): Promise<void> {
+  if (getTotalPoints(sessions) === 0) {
+    throw new Error('No data to export');
+  }
+
+  const features = sessions
+    .filter(session => session.points.length > 0)
+    .map((session, sessionIndex) => {
+      const coordinates = session.points.map(point => [point.longitude, point.latitude]);
+      const timestamps = session.points.map(point => point.timestamp);
+      const accuracies = session.points.map(point => point.accuracy ?? null);
+      const geometry = coordinates.length === 1
+        ? { type: 'Point', coordinates: coordinates[0] }
+        : { type: 'LineString', coordinates };
+
+      return {
+        type: 'Feature',
+        properties: {
+          id: session.id,
+          sessionIndex,
+          pointCount: coordinates.length,
+          timestamps,
+          accuracies,
+        },
+        geometry,
+      };
+    });
+
   const data = {
-    exportedAt: new Date().toISOString(),
-    sessions: sessions.map(session => ({
-      id: session.id,
-      points: session.points.map(point => ({
-        lat: point.latitude,
-        lon: point.longitude,
-        timestamp: point.timestamp,
-        accuracy: point.accuracy,
-      })),
-    })),
+    type: 'FeatureCollection',
+    metadata: {
+      exportedAt: new Date().toISOString(),
+      generator: 'Trace',
+    },
+    features,
   };
 
   const json = JSON.stringify(data, null, 2);
-  const fileName = `trace-export-${Date.now()}.json`;
+  const fileName = `trace-export-${Date.now()}.geojson`;
   const filePath = `${FileSystem.documentDirectory}${fileName}`;
 
   await FileSystem.writeAsStringAsync(filePath, json);
-  await Sharing.shareAsync(filePath);
+  await shareFile(filePath);
 }
 
 /**
  * Export sessions as SVG format
  */
 export async function exportSVG(sessions: Session[], width: number = 1000, height: number = 1000): Promise<void> {
-  const allPoints = sessions.flatMap(s => s.points);
-  if (allPoints.length === 0) {
+  if (getTotalPoints(sessions) === 0) {
     throw new Error('No data to export');
   }
+  const allPoints = sessions.flatMap(s => s.points);
 
   const bounds = getBoundingBox(allPoints);
   if (!bounds) {
@@ -97,5 +142,5 @@ export async function exportSVG(sessions: Session[], width: number = 1000, heigh
   const filePath = `${FileSystem.documentDirectory}${fileName}`;
 
   await FileSystem.writeAsStringAsync(filePath, svg);
-  await Sharing.shareAsync(filePath);
+  await shareFile(filePath);
 }
