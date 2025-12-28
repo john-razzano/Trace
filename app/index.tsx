@@ -5,6 +5,8 @@ import { useTheme } from '../utils/theme';
 import { useSettings, TimeRange } from '../hooks/useSettings';
 import { useLocation } from '../hooks/useLocation';
 import { useDatabase } from '../hooks/useDatabase';
+import { useDoubleTap } from '../hooks/useDoubleTap';
+import { useReplayAnimation } from '../hooks/useReplayAnimation';
 import { getDisplayBounds } from '../utils/geo';
 import { LineRenderer } from '../components/LineRenderer';
 import { MapLayer } from '../components/MapLayer';
@@ -56,6 +58,33 @@ export default function MainScreen() {
     const allPoints = sessions.flatMap(session => session.points);
     return getDisplayBounds(allPoints);
   }, [sessions]);
+
+  const { isReplaying, progress: replayProgress, startReplay, stopReplay } = useReplayAnimation({
+    duration: 4000,
+  });
+
+  const totalPoints = useMemo(() => {
+    return sessions.flatMap(s => s.points).length;
+  }, [sessions]);
+
+  const { handleTap } = useDoubleTap({
+    onSingleTap: () => {
+      if (!isReplaying) {
+        setControlsVisible(prev => !prev);
+      }
+    },
+    onDoubleTap: () => {
+      if (totalPoints > 1) {
+        if (isReplaying) {
+          stopReplay();
+        } else {
+          setControlsVisible(false);
+          startReplay();
+        }
+      }
+    },
+    doubleTapDelay: 300,
+  });
 
   const loadTotalPointCount = useCallback(async () => {
     try {
@@ -133,9 +162,6 @@ export default function MainScreen() {
     };
   }, [refresh, loadTotalPointCount]);
 
-  const handleScreenTap = () => {
-    setControlsVisible(prev => !prev);
-  };
 
   const handleExportGPX = async () => {
     try {
@@ -185,7 +211,7 @@ export default function MainScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar hidden />
 
-      <TouchableWithoutFeedback onPress={handleScreenTap}>
+      <TouchableWithoutFeedback onPress={handleTap}>
         <View style={styles.content}>
           {settings.mapOpacity > 0 && (
             <MapLayer bounds={displayBounds} opacity={settings.mapOpacity} />
@@ -197,18 +223,22 @@ export default function MainScreen() {
             isTracking={isTracking}
             bounds={displayBounds}
             gapThresholdMs={settings.trackingInterval * 60 * 1000 * 2}
+            isReplaying={isReplaying}
+            replayProgress={replayProgress}
           />
         </View>
       </TouchableWithoutFeedback>
 
-      <CurrentLocationIndicator
-        color={theme.accent}
-        isTracking={isTracking}
-        currentLocation={currentLocation}
-        bounds={displayBounds}
-        width={width}
-        height={height}
-      />
+      {!isReplaying && (
+        <CurrentLocationIndicator
+          color={theme.accent}
+          isTracking={isTracking}
+          currentLocation={currentLocation}
+          bounds={displayBounds}
+          width={width}
+          height={height}
+        />
+      )}
 
       <TrackingIndicator
         isTracking={isTracking}
