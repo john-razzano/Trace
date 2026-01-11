@@ -7,7 +7,8 @@ import { useLocation } from '../hooks/useLocation';
 import { useDatabase } from '../hooks/useDatabase';
 import { useDoubleTap } from '../hooks/useDoubleTap';
 import { useReplayAnimation } from '../hooks/useReplayAnimation';
-import { getDisplayBounds } from '../utils/geo';
+import { getDisplayBounds, LatLonBounds } from '../utils/geo';
+import { mixHexColors } from '../utils/color';
 import { LineRenderer } from '../components/LineRenderer';
 import { MapLayer } from '../components/MapLayer';
 import { TimeSlider } from '../components/TimeSlider';
@@ -18,6 +19,7 @@ import { CurrentLocationIndicator } from '../components/CurrentLocationIndicator
 import { exportGPX, exportGeoJSON, exportSVG } from '../utils/export';
 import { clearAllLocations, getLocationCount } from '../utils/database';
 import { Ionicons } from '@expo/vector-icons';
+import type MapView from 'react-native-maps';
 
 const TIME_RANGE_MS: Record<TimeRange, number | null> = {
   '1h': 60 * 60 * 1000,
@@ -39,25 +41,25 @@ export default function MainScreen() {
   const [isInteracting, setIsInteracting] = useState(false);
   const settingsFadeAnim = useRef(new Animated.Value(0)).current;
   const [totalPointCount, setTotalPointCount] = useState<number | null>(null);
+  const [mapBounds, setMapBounds] = useState<LatLonBounds | null>(null);
+  const [contentSize, setContentSize] = useState<{ width: number; height: number } | null>(null);
   const autoStartAttemptedRef = useRef(false);
   const appState = useRef(AppState.currentState);
+  const mapRef = useRef<MapView | null>(null);
 
-  // Calculate time window for data query
-  const timeWindow = useMemo(() => {
-    const rangeMs = TIME_RANGE_MS[settings.timeRange];
-    if (rangeMs === null) {
-      return { startTime: undefined, endTime: undefined };
-    }
-    const endTime = Date.now();
-    const startTime = endTime - rangeMs;
-    return { startTime, endTime };
-  }, [settings.timeRange]);
+  // Get time range in milliseconds (null means "all time")
+  const timeRangeMs = TIME_RANGE_MS[settings.timeRange];
 
-  const { sessions, refresh } = useDatabase(timeWindow.startTime, timeWindow.endTime);
+  const { sessions, refresh } = useDatabase(timeRangeMs);
   const displayBounds = useMemo(() => {
     const allPoints = sessions.flatMap(session => session.points);
     return getDisplayBounds(allPoints);
   }, [sessions]);
+  const overlayBounds = useMemo(() => mapBounds ?? displayBounds, [mapBounds, displayBounds]);
+  const lineColor = useMemo(() => {
+    const mix = Math.min(1, Math.max(0, settings.mapOpacity * settings.mapOpacity));
+    return mixHexColors(theme.line, '#1B1B1B', mix);
+  }, [theme.line, settings.mapOpacity]);
 
   const { isReplaying, progress: replayProgress, startReplay, stopReplay } = useReplayAnimation({
     duration: 4000,
@@ -212,19 +214,39 @@ export default function MainScreen() {
       <StatusBar hidden />
 
       <TouchableWithoutFeedback onPress={handleTap}>
-        <View style={styles.content}>
-          {settings.mapOpacity > 0 && (
-            <MapLayer bounds={displayBounds} opacity={settings.mapOpacity} />
-          )}
+        <View
+          style={styles.content}
+          onLayout={(event) => {
+            const { width: layoutWidth, height: layoutHeight } = event.nativeEvent.layout;
+            if (layoutWidth > 0 && layoutHeight > 0) {
+              setContentSize(prev => {
+                if (prev?.width === layoutWidth && prev?.height === layoutHeight) {
+                  return prev;
+                }
+                return { width: layoutWidth, height: layoutHeight };
+              });
+            }
+          }}
+        >
+          <MapLayer
+            bounds={displayBounds}
+            opacity={settings.mapOpacity}
+            onBoundsChange={setMapBounds}
+            mapRef={mapRef}
+          />
           <LineRenderer
             sessions={sessions}
-            color={theme.line}
+            color={lineColor}
             accentColor={theme.accent}
             isTracking={isTracking}
-            bounds={displayBounds}
+            bounds={overlayBounds}
             gapThresholdMs={settings.trackingInterval * 60 * 1000 * 2}
             isReplaying={isReplaying}
             replayProgress={replayProgress}
+            mapRef={mapRef}
+            mapBounds={mapBounds}
+            width={contentSize?.width}
+            height={contentSize?.height}
           />
         </View>
       </TouchableWithoutFeedback>
@@ -234,9 +256,11 @@ export default function MainScreen() {
           color={theme.accent}
           isTracking={isTracking}
           currentLocation={currentLocation}
-          bounds={displayBounds}
-          width={width}
-          height={height}
+          bounds={overlayBounds}
+          width={contentSize?.width ?? width}
+          height={contentSize?.height ?? height}
+          mapRef={mapRef}
+          mapBounds={mapBounds}
         />
       )}
 

@@ -20,17 +20,32 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
     await initDatabase();
     const sessionId = await getOrCreateTrackingSessionId();
 
+    let recorded = 0;
+    let skipped = 0;
+
     for (const location of locations) {
+      // Filter out low-accuracy points (> 50m accuracy)
+      const accuracy = location.coords.accuracy;
+      if (accuracy && accuracy > 50) {
+        skipped++;
+        continue;
+      }
+
       await insertLocation({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         timestamp: location.timestamp,
-        accuracy: location.coords.accuracy || undefined,
+        accuracy: accuracy || undefined,
         session_id: sessionId,
       });
+      recorded++;
     }
 
-    console.log(`[Trace] Background recorded ${locations.length} location(s).`);
+    if (skipped > 0) {
+      console.log(`[Trace] Background recorded ${recorded} location(s), skipped ${skipped} low-accuracy point(s).`);
+    } else {
+      console.log(`[Trace] Background recorded ${recorded} location(s).`);
+    }
   } catch (taskError) {
     console.error('[Trace] Failed to record background locations:', taskError);
   }

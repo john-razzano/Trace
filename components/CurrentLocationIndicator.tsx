@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Animated, Easing } from 'react-native';
 import type { LocationObject } from 'expo-location';
-import { LatLonBounds, latLonToSVG, getActualMapBounds } from '../utils/geo';
+import type MapView from 'react-native-maps';
+import { LatLonBounds, latLonToSVG } from '../utils/geo';
 
 interface CurrentLocationIndicatorProps {
   color: string;
@@ -10,6 +11,8 @@ interface CurrentLocationIndicatorProps {
   bounds: LatLonBounds | null;
   width: number;
   height: number;
+  mapRef?: React.RefObject<MapView>;
+  mapBounds?: LatLonBounds | null;
 }
 
 export function CurrentLocationIndicator({
@@ -19,9 +22,12 @@ export function CurrentLocationIndicator({
   bounds,
   width,
   height,
+  mapRef,
+  mapBounds,
 }: CurrentLocationIndicatorProps) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(0.8)).current;
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!isTracking) return;
@@ -69,18 +75,49 @@ export function CurrentLocationIndicator({
     };
   }, [isTracking, scale, opacity]);
 
-  const position = useMemo(() => {
-    if (!currentLocation || !bounds) return null;
-    // Calculate the actual bounds the map displays (accounting for screen aspect ratio)
-    const actualBounds = getActualMapBounds(bounds, width, height);
-    return latLonToSVG(
-      currentLocation.coords.latitude,
-      currentLocation.coords.longitude,
-      actualBounds,
-      width,
-      height
-    );
-  }, [currentLocation, bounds, width, height]);
+  useEffect(() => {
+    let cancelled = false;
+
+    const computePosition = async () => {
+      if (!currentLocation) {
+        if (!cancelled) setPosition(null);
+        return;
+      }
+
+      if (mapRef?.current) {
+        try {
+          const point = await mapRef.current.pointForCoordinate({
+            latitude: currentLocation.coords.latitude,
+            longitude: currentLocation.coords.longitude,
+          });
+          if (!cancelled) setPosition(point);
+          return;
+        } catch (error) {
+          console.warn('[Trace] Failed to project current location:', error);
+        }
+      }
+
+      if (!bounds) {
+        if (!cancelled) setPosition(null);
+        return;
+      }
+
+      const fallback = latLonToSVG(
+        currentLocation.coords.latitude,
+        currentLocation.coords.longitude,
+        bounds,
+        width,
+        height
+      );
+      if (!cancelled) setPosition(fallback);
+    };
+
+    computePosition();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLocation, bounds, width, height, mapRef, mapBounds]);
 
   if (!isTracking || !position) return null;
 

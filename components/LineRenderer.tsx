@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, useWindowDimensions, Animated } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import type MapView from 'react-native-maps';
 import { Session, LocationPoint } from '../utils/database';
-import { LatLonBounds, generatePathData, simplifyPath, latLonToSVG, getActualMapBounds } from '../utils/geo';
+import { LatLonBounds, generatePathData, simplifyPath, latLonToSVG } from '../utils/geo';
 import { PulseIndicator } from './PulseIndicator';
 import { AnimatedPath } from './AnimatedPath';
 import { AnimatedReplayIndicator } from './AnimatedReplayIndicator';
@@ -16,6 +17,10 @@ interface LineRendererProps {
   gapThresholdMs?: number;
   isReplaying?: boolean;
   replayProgress?: Animated.Value;
+  mapRef?: React.RefObject<MapView>;
+  mapBounds?: LatLonBounds | null;
+  width?: number;
+  height?: number;
 }
 
 function splitPointsByGap(points: LocationPoint[], gapThresholdMs?: number): LocationPoint[][] {
@@ -52,17 +57,22 @@ export function LineRenderer({
   gapThresholdMs,
   isReplaying = false,
   replayProgress,
+  mapRef,
+  mapBounds,
+  width,
+  height,
 }: LineRendererProps) {
-  const { width, height } = useWindowDimensions();
+  const windowDimensions = useWindowDimensions();
+  const renderWidth = width ?? windowDimensions.width;
+  const renderHeight = height ?? windowDimensions.height;
+  const [mapPaths, setMapPaths] = useState<string[] | null>(null);
+  const [mapLastPoint, setMapLastPoint] = useState<{ x: number; y: number } | null>(null);
 
-  const { paths, lastPoint } = useMemo(() => {
+  const { paths: fallbackPaths, lastPoint: fallbackLastPoint } = useMemo(() => {
     const allPoints = sessions.flatMap(s => s.points);
     if (allPoints.length === 0 || !bounds) {
       return { paths: [], lastPoint: null };
     }
-
-    // Calculate the actual bounds the map will display (accounting for screen aspect ratio)
-    const actualBounds = getActualMapBounds(bounds, width, height);
 
     // Sort all points chronologically first, then split by gaps
     const sortedPoints = [...allPoints].sort((a, b) => a.timestamp - b.timestamp);
@@ -76,24 +86,107 @@ export function LineRenderer({
           ? simplifyPath(segment, 0.0001)
           : segment;
 
-        return generatePathData(simplified, actualBounds, width, height);
+        return generatePathData(simplified, bounds, renderWidth, renderHeight);
       });
 
     // Get the last point for the pulse indicator (chronologically last)
     const lastLocationPoint = sortedPoints[sortedPoints.length - 1];
     const lastSVGPoint = lastLocationPoint
-      ? latLonToSVG(lastLocationPoint.latitude, lastLocationPoint.longitude, actualBounds, width, height)
+      ? latLonToSVG(lastLocationPoint.latitude, lastLocationPoint.longitude, bounds, renderWidth, renderHeight)
       : null;
 
     return {
       paths: sessionPaths,
       lastPoint: lastSVGPoint,
     };
-  }, [sessions, width, height, bounds, gapThresholdMs]);
+  }, [sessions, renderWidth, renderHeight, bounds, gapThresholdMs]);
+
+  useEffect(() => {
+    if (!mapRef?.current) {
+      setMapPaths(null);
+      setMapLastPoint(null);
+      return;
+    }
+
+    let cancelled = false;
+    const buildPathFromScreenPoints = (points: { x: number; y: number }[]) => {
+      if (points.length === 0) return '';
+      let path = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 1; i < points.length; i++) {
+        path += ` L ${points[i].x} ${points[i].y}`;
+      }
+      return path;
+    };
+
+    const computeMapPaths = async () => {
+      try {
+        const allPoints = sessions.flatMap(s => s.points);
+        if (allPoints.length === 0) {
+          if (!cancelled) {
+            setMapPaths([]);
+            setMapLastPoint(null);
+          }
+          return;
+        }
+
+        const sortedPoints = [...allPoints].sort((a, b) => a.timestamp - b.timestamp);
+        const segments = splitPointsByGap(sortedPoints, gapThresholdMs);
+        const newPaths: string[] = [];
+
+        for (const segment of segments) {
+          if (segment.length < 2) continue;
+          const simplified = segment.length > 100
+            ? simplifyPath(segment, 0.0001)
+            : segment;
+          const screenPoints = await Promise.all(
+            simplified.map(point =>
+              mapRef.current!.pointForCoordinate({
+                latitude: point.latitude,
+                longitude: point.longitude,
+              })
+            )
+          );
+          const filtered = screenPoints.filter(point =>
+            Number.isFinite(point.x) && Number.isFinite(point.y)
+          );
+          if (filtered.length > 1) {
+            newPaths.push(buildPathFromScreenPoints(filtered));
+          }
+        }
+
+        const lastLocationPoint = sortedPoints[sortedPoints.length - 1];
+        const lastScreenPoint = lastLocationPoint
+          ? await mapRef.current!.pointForCoordinate({
+            latitude: lastLocationPoint.latitude,
+            longitude: lastLocationPoint.longitude,
+          })
+          : null;
+
+        if (!cancelled) {
+          setMapPaths(newPaths);
+          setMapLastPoint(lastScreenPoint);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMapPaths(null);
+          setMapLastPoint(null);
+        }
+        console.warn('[Trace] Failed to project path to map coordinates:', error);
+      }
+    };
+
+    computeMapPaths();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessions, mapRef, mapBounds, gapThresholdMs, renderWidth, renderHeight]);
+
+  const paths = mapPaths ?? fallbackPaths;
+  const lastPoint = mapPaths !== null ? mapLastPoint : fallbackLastPoint;
 
   return (
     <View style={styles.container}>
-      <Svg width={width} height={height}>
+      <Svg width={renderWidth} height={renderHeight}>
         {isReplaying && replayProgress ? (
           <AnimatedPath
             paths={paths}

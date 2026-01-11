@@ -83,23 +83,30 @@ export function useLocation(
     const subscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.Balanced,
-        distanceInterval: 5,
+        distanceInterval: 10,
         timeInterval: intervalMinutes * 60 * 1000,
       },
       async (location) => {
         setState(prev => ({ ...prev, currentLocation: location }));
+
+        // Filter out low-accuracy points (> 50m accuracy)
+        const accuracy = location.coords.accuracy;
+        if (accuracy && accuracy > 50) {
+          console.log(`[Trace] Skipping low-accuracy point: ${accuracy.toFixed(1)}m`);
+          return;
+        }
 
         if (sessionIdRef.current) {
           await insertLocation({
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             timestamp: location.timestamp,
-            accuracy: location.coords.accuracy || undefined,
+            accuracy: accuracy || undefined,
             session_id: sessionIdRef.current,
           });
           const timestamp = new Date(location.timestamp).toISOString();
           console.log(
-            `[Trace] Recorded location: lat=${location.coords.latitude}, lon=${location.coords.longitude}, time=${timestamp}`
+            `[Trace] Recorded location: lat=${location.coords.latitude}, lon=${location.coords.longitude}, accuracy=${accuracy?.toFixed(1) ?? '?'}m, time=${timestamp}`
           );
           onLocationRecordedRef.current?.(location);
         }
@@ -131,10 +138,10 @@ export function useLocation(
 
     await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
       accuracy: Location.Accuracy.Balanced,
-      distanceInterval: 5,
+      distanceInterval: 10,
       timeInterval: intervalMinutes * 60 * 1000,
       deferredUpdatesInterval: intervalMinutes * 60 * 1000,
-      deferredUpdatesDistance: 5,
+      deferredUpdatesDistance: 10,
       activityType: Location.ActivityType.Fitness,
       pausesUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: false,

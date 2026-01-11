@@ -10,11 +10,11 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#F5F2EB"
+      "backgroundColor": "#232D4B"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.trace.app",
+      "bundleIdentifier": "io.trace.app",
       "infoPlist": {
         "UIBackgroundModes": [
           "location"
@@ -30,7 +30,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#F5F2EB"
       },
-      "package": "com.trace.app",
+      "package": "io.trace.app",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",

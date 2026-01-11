@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-expo-app:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(npm install)",
+      "Bash(npx expo install:*)",
+      "Bash(npm install:*)",
+      "Bash(npx expo start:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(export LANG=en_US.UTF-8)",
+      "Bash(pod install:*)",
+      "Bash(open ios/Trace.xcworkspace)",
+      "Bash(awk:*)",
+      "Bash(npx expo prebuild:*)",
+      "Bash(killall:*)",
+      "Bash(npx expo run:ios)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(cat:*)",
+      "Bash(npx tsc:*)",
+      "Bash(sips:*)",
+      "Bash(ls:*)",
+      "Bash(open:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
